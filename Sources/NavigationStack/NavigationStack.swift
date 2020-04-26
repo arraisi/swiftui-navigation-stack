@@ -16,9 +16,11 @@ public enum NavigationTransition {
     /// Use a custom transition (the transition will be applied both to push and pop operations).
     case custom(AnyTransition)
 
+    case customAsymmetric(push: AnyTransition, pop: AnyTransition)
+
     /// A right-to-left slide transition on push, a left-to-right slide transition on pop.
     /// - Tag: defaultTransition
-    public static var defaultTransitions: (push: AnyTransition, pop: AnyTransition) {
+    public static var defaultTransitions: (AnyTransition, AnyTransition) {
         let pushTrans = AnyTransition.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading))
         let popTrans = AnyTransition.asymmetric(insertion: .move(edge: .leading), removal: .move(edge: .trailing))
         return (pushTrans, popTrans)
@@ -45,11 +47,24 @@ public enum PopDestination {
 // MARK: ViewModel
 
 public class NavigationStack: ObservableObject {
-    fileprivate private(set) var navigationType = NavigationType.push
+    @Published fileprivate var navigationType = NavigationType.push
+
+    @Published fileprivate var transitions: (push: AnyTransition, pop: AnyTransition)
+
     /// Customizable easing to apply in pop and push transitions
     private let easing: Animation
     
-    init(easing: Animation) {
+    init(transitionType: NavigationTransition, easing: Animation) {
+        switch transitionType {
+        case .none:
+            transitions = (.identity, .identity)
+        case .custom(let trans):
+            transitions = (trans, trans)
+        case .customAsymmetric(let pushTrans, let popTrans):
+            transitions = (pushTrans, popTrans)
+        default:
+            transitions = NavigationTransition.defaultTransitions
+        }
         self.easing = easing
     }
     
@@ -144,7 +159,6 @@ public struct NavigationStackView<Root>: View where Root: View {
     @ObservedObject private var navViewModel: NavigationStack
     private let rootViewID = "root"
     private let rootView: Root
-    private let transitions: (push: AnyTransition, pop: AnyTransition)
 
     /// Creates a NavigationStackView.
     /// - Parameters:
@@ -153,15 +167,7 @@ public struct NavigationStackView<Root>: View where Root: View {
     ///   - rootView: The very first view in the NavigationStack.
     public init(transitionType: NavigationTransition = .default, easing: Animation = .easeOut(duration: 0.2), @ViewBuilder rootView: () -> Root) {
         self.rootView = rootView()
-        self.navViewModel = NavigationStack(easing: easing)
-        switch transitionType {
-        case .none:
-            self.transitions = (.identity, .identity)
-        case .custom(let trans):
-            self.transitions = (trans, trans)
-        default:
-            self.transitions = NavigationTransition.defaultTransitions
-        }
+        self.navViewModel = NavigationStack(transitionType: transitionType, easing: easing)
     }
 
     public var body: some View {
@@ -173,12 +179,12 @@ public struct NavigationStackView<Root>: View where Root: View {
                 if showRoot {
                     rootView
                         .id(rootViewID)
-                        .transition(navigationType == .push ? transitions.push : transitions.pop)
+                        .transition(navigationType == .push ? navViewModel.transitions.push : navViewModel.transitions.pop)
                         .environmentObject(navViewModel)
                 } else {
                     navViewModel.currentView!.wrappedElement
                         .id(navViewModel.currentView!.id)
-                        .transition(navigationType == .push ? transitions.push : transitions.pop)
+                        .transition(navigationType == .push ? navViewModel.transitions.push : navViewModel.transitions.pop)
                         .environmentObject(navViewModel)
                 }
             }
